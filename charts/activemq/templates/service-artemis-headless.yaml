@@ -1,0 +1,38 @@
+{{- if .Values.artemis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "activemq.fullname" . }}-artemis-headless
+  labels:
+    {{- include "activemq.labels" . | nindent 4 }}
+    app.kubernetes.io/component: artemis
+spec:
+  type: ClusterIP
+  clusterIP: None # Defines the service as headless
+  selector:
+    {{- include "activemq.selectorLabels" . | nindent 4 }} # Ensure these are the same labels as in the StatefulSet pod template
+    app.kubernetes.io/component: artemis
+  ports:
+    - name: core # Port used for Artemis core protocol and clustering
+      port: 61616
+      targetPort: core # Refers to the container port name in the StatefulSet
+      protocol: TCP
+    - name: console # Port for the web console / Jolokia
+      port: 8161
+      targetPort: console
+      protocol: TCP
+    - name: amqp # Port for AMQP
+      port: 5672
+      targetPort: amqp
+      protocol: TCP
+    # Add other relevant ports that might need DNS resolution per pod
+    # For example, if STOMP/MQTT clients connect to individual pods using their DNS names.
+    # - name: stomp
+    #   port: 61613
+    #   targetPort: stomp # Assuming a 'stomp' port is defined in the StatefulSet container
+    #   protocol: TCP
+    # - name: mqtt
+    #   port: 1883
+    #   targetPort: mqtt # Assuming an 'mqtt' port is defined
+    #   protocol: TCP
+{{- end }}

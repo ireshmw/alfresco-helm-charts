@@ -1,3 +1,4 @@
+{{- if not .Values.artemis.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,3 +14,4 @@ spec:
     protocol: TCP
   selector:
     {{- include "activemq.selectorLabels" . | nindent 4 }}
+{{- end }}

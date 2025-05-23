@@ -1,0 +1,151 @@
+{{- if .Values.artemis.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ template "activemq.fullname" . }}-artemis
+  labels:
+    {{- include "activemq.labels" . | nindent 4 }}
+    app.kubernetes.io/component: artemis
+spec:
+  replicas: {{ .Values.artemis.cluster.replicaCount }}
+  serviceName: {{ template "activemq.fullname" . }}-artemis-headless
+  selector:
+    matchLabels:
+      {{- include "activemq.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: artemis
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "activemq.labels" . | nindent 8 }}
+        app.kubernetes.io/component: artemis
+      annotations:
+        checksum/configmap-artemis-broker: {{ print (include (print $.Template.BasePath "/configmap-artemis-broker.yaml") .) | sha256sum }}
+    spec:
+      {{- include "alfresco-common.component-pod-security-context" .Values | indent 6 }}
+      {{- include "alfresco-common.imagePullSecrets" . | indent 6 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: {{ .Chart.Name }}-artemis
+        image: "{{ .Values.artemis.image.repository }}:{{ .Values.artemis.image.tag }}"
+        imagePullPolicy: {{ .Values.artemis.image.pullPolicy }}
+        {{- include "alfresco-common.component-security-context" .Values | indent 8 }}
+        env:
+        {{- $artemisSecretName := default (printf "%s-artemis-secret" (include "activemq.fullname" .)) .Values.artemis.adminUser.existingSecretName }}
+        {{- if .Values.artemis.adminUser.existingSecretName }}
+        - name: ARTEMIS_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ $artemisSecretName }}
+              key: BROKER_USERNAME # Standard key, ensure it matches the secret
+        - name: ARTEMIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $artemisSecretName }}
+              key: BROKER_PASSWORD # Standard key, ensure it matches the secret
+        {{- else }}
+        - name: ARTEMIS_USER
+          value: {{ .Values.artemis.adminUser.login | quote }}
+        - name: ARTEMIS_PASSWORD
+          value: {{ .Values.artemis.adminUser.password | quote }} # Note: Storing passwords in values.yaml is not recommended for production
+        {{- end }}
+        - name: ARTEMIS_CLUSTER_USER
+          value: {{ .Values.artemis.cluster.clusterUser | quote }}
+        - name: ARTEMIS_CLUSTER_PASSWORD
+          value: {{ .Values.artemis.cluster.clusterPassword | quote }} # Note: Storing passwords in values.yaml is not recommended for production
+        - name: MIN_HEAP_SIZE
+          value: "{{ .Values.artemis.resources.requests.memory }}"
+        - name: MAX_HEAP_SIZE
+          value: "{{ .Values.artemis.resources.limits.memory }}"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        ports:
+        - name: core
+          containerPort: 61616
+          protocol: TCP
+        - name: amqp
+          containerPort: 5672
+          protocol: TCP
+        - name: console
+          containerPort: 8161 # Web console
+          protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: core
+          initialDelaySeconds: 180 # Time for broker to start up initially
+          periodSeconds: 30      # Check less frequently than readiness
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              set -e # Exit immediately if a command exits with a non-zero status.
+              # Construct the broker name using POD_NAME env var
+              BROKER_NAME_SUFFIX="${POD_NAME}"
+              EXPECTED_BROKER_NAME="{{ .Values.artemis.cluster.name }}-${BROKER_NAME_SUFFIX}"
+              
+              # Check if ARTEMIS_USER and ARTEMIS_PASSWORD are set, if not, try without auth (less secure, for flexibility)
+              AUTH_PARAMS=""
+              if [ -n "${ARTEMIS_USER}" ] && [ -n "${ARTEMIS_PASSWORD}" ]; then
+                AUTH_PARAMS="-u ${ARTEMIS_USER}:${ARTEMIS_PASSWORD}"
+              fi
+              
+              # Query Jolokia for the 'Started' attribute of the specific broker MBean
+              # The URL needs to be properly encoded if special characters are in BROKER_NAME, but typically not for hostnames/simple names
+              # Using JQ to parse JSON if available, otherwise grep
+              if command -v jq &> /dev/null; then
+                curl -s -f ${AUTH_PARAMS} "http://localhost:8161/console/jolokia/read/org.apache.activemq.artemis:broker=${EXPECTED_BROKER_NAME}/Started"                 | jq -e '.value == true'
+              else
+                curl -s -f ${AUTH_PARAMS} "http://localhost:8161/console/jolokia/read/org.apache.activemq.artemis:broker=${EXPECTED_BROKER_NAME}/Started"                 | grep -q '"value":true'
+              fi
+          initialDelaySeconds: 90  # Increased delay for Artemis to become fully ready (cluster sync, MBean registration)
+          periodSeconds: 20       # Check more frequently
+          timeoutSeconds: 10      # Allow more time for the curl command
+          failureThreshold: 6     # Be more tolerant, especially during cluster formation or initial startup
+          successThreshold: 1
+        resources:
+          {{- toYaml .Values.artemis.resources | nindent 12 }}
+        volumeMounts:
+        - name: data
+          mountPath: {{ .Values.artemis.persistence.data.mountPath }} 
+        - name: broker-config 
+          mountPath: /var/lib/artemis-instance/etc/broker.xml 
+          subPath: broker.xml 
+      volumes:
+      - name: broker-config
+        configMap:
+          name: {{ template "activemq.fullname" . }}-artemis-broker-config 
+          items:
+          - key: broker.xml
+            path: broker.xml
+  {{- if .Values.artemis.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data 
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: {{ .Values.artemis.persistence.size }}
+      {{- if .Values.artemis.persistence.storageClassName }}
+      storageClassName: {{ .Values.artemis.persistence.storageClassName }}
+      {{- else if .Values.global }}
+        {{- if .Values.global.persistence }}
+          {{- if .Values.global.persistence.storageClassName }}
+      storageClassName: {{ .Values.global.persistence.storageClassName }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+  {{- end }}
+{{- end }}

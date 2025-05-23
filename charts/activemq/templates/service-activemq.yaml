@@ -1,0 +1,32 @@
+{{- if not .Values.artemis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "activemq.fullname" . }}
+  labels:
+    {{- include "activemq.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.service.loadBalancerIP }}
+  {{- end }}
+  selector:
+    {{- include "activemq.selectorLabels" . | nindent 4 }}
+  ports:
+  - name: stomp
+    port: {{ .Values.services.broker.ports.external.stomp | default 61613 }}
+    targetPort: stomp
+    protocol: TCP
+  - name: openwire
+    port: {{ .Values.services.broker.ports.external.openwire | default 61616 }}
+    targetPort: openwire
+    protocol: TCP
+  - name: amqp
+    port: {{ .Values.services.broker.ports.external.amqp | default 5672 }}
+    targetPort: amqp
+    protocol: TCP
+  - name: web-console
+    port: {{ .Values.services.webConsole.ports.external.webConsole | default 8161 }}
+    targetPort: web-console
+    protocol: TCP
+{{- end }}

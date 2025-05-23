@@ -1,0 +1,46 @@
+{{- if .Values.artemis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "activemq.fullname" . }}-artemis # Or a more distinct name if needed, e.g., {{ template "activemq.fullname" . }}-artemis-clients
+  labels:
+    {{- include "activemq.labels" . | nindent 4 }}
+    app.kubernetes.io/component: artemis
+spec:
+  type: {{ .Values.service.type | default "ClusterIP" }} # Reuse existing service type, default to ClusterIP
+  {{- if and (eq .Values.service.type "LoadBalancer") .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.service.loadBalancerIP }}
+  {{- end }}
+  selector:
+    {{- include "activemq.selectorLabels" . | nindent 4 }} # Must match labels on Artemis pods
+    app.kubernetes.io/component: artemis
+  ports:
+  # These ports should align with what clients will use and what Artemis pods expose.
+  # Using .Values.services from the original ActiveMQ classic for port numbers,
+  # assuming they are suitable or can be overridden.
+  # If Artemis has different default ports or common usage, adjust targetPort or define new values.
+  - name: core
+    port: {{ .Values.services.broker.ports.external.openwire | default 61616 }} # Clients connect to this OpenWire/Core port
+    targetPort: core # Targets the 'core' port (61616) on the Artemis pods
+    protocol: TCP
+  - name: amqp
+    port: {{ .Values.services.broker.ports.external.amqp | default 5672 }}
+    targetPort: amqp # Targets the 'amqp' port (5672) on the Artemis pods
+    protocol: TCP
+  - name: web-console
+    port: {{ .Values.services.webConsole.ports.external.webConsole | default 8161 }}
+    targetPort: console # Targets the 'console' port (8161) on the Artemis pods
+    protocol: TCP
+  # Add other client-facing ports as needed, e.g., STOMP, MQTT
+  # Ensure these names (stomp, mqtt) and targetPorts are defined in the Artemis StatefulSet container spec.
+  # For example, if STOMP is on 61613 in Artemis:
+  # - name: stomp
+  #   port: {{ .Values.services.broker.ports.external.stomp | default 61613 }}
+  #   targetPort: 61613 # Or a named port like 'stomp' if defined in StatefulSet
+  #   protocol: TCP
+  # - name: mqtt
+  #   port: 1883 # Common MQTT port
+  #   targetPort: 1883 # Or a named port like 'mqtt'
+  #   protocol: TCP
+
+{{- end }}

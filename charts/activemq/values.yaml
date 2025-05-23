@@ -1,5 +1,65 @@
 # Leave this to true to deploy the chart
 enabled: true
+
+# Artemis specific configuration
+artemis:
+  # -- Enable ActiveMQ Artemis deployment
+  enabled: false
+  image:
+    # -- Artemis image repository
+    repository: "apache/activemq-artemis"
+    # -- Artemis image tag
+    # Ensure this image exists and is suitable
+    tag: "latest-alpine"
+    # -- Artemis image pull policy
+    pullPolicy: IfNotPresent
+  cluster:
+    # -- Enable Artemis cluster (effective if artemis.enabled is true)
+    enabled: true
+    # -- Number of Artemis replicas
+    replicaCount: 3
+    # -- Artemis cluster name
+    name: "artemis-cluster"
+    # -- Default username for cluster communication
+    clusterUser: "artemisClusterAdmin"
+    # -- Default password for cluster communication
+    # User MUST change this
+    clusterPassword: "CHANGE_ME_PLEASE"
+  adminUser:
+    # -- Artemis admin login
+    login: "artemis"
+    # -- Artemis admin password
+    # User MUST change this
+    password: "CHANGE_ME_PLEASE_TOO"
+    # -- An existing kubernetes secret that contains ARTEMIS_USER and ARTEMIS_PASSWORD keys to override the default user credentials
+    existingSecretName: ""
+  persistence:
+    # -- Enable persistence for Artemis
+    enabled: true
+    data:
+      # -- Artemis data directory path
+      # Verify this path, Artemis default data dir might differ
+      path: "/var/lib/artemis-instance/data"
+      # -- Mount path for Artemis data
+      mountPath: "/var/lib/artemis-instance/data"
+      # -- SubPath for Artemis data
+      # Usually not needed with StatefulSet volumeClaimTemplates as each pod gets its own volume
+      subPath: ""
+    # -- Artemis persistence size
+    size: "10Gi"
+    # -- Artemis storage class name
+    storageClassName: ""
+  resources:
+    # -- Artemis resource limits
+    limits:
+      cpu: "1Gi"
+      memory: "1Gi"
+    # -- Artemis resource requests
+    requests:
+      cpu: "500m"
+      memory: "500Mi"
+
+# ActiveMQ Classic configuration (for backwards compatibility)
 replicaCount: 1
 nodeSelector: {}
 image:

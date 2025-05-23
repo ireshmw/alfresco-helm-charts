@@ -1,0 +1,121 @@
+{{- if .Values.artemis.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "activemq.fullname" . }}-artemis-broker-config
+  labels:
+    {{- include "activemq.labels" . | nindent 4 }}
+    app.kubernetes.io/component: artemis
+data:
+  broker.xml: |
+    <configuration xmlns="urn:activemq"
+                 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xsi:schemaLocation="urn:activemq /schema/artemis-configuration.xsd">
+      <core xmlns="urn:activemq:core">
+        <name>{{ .Values.artemis.cluster.name }}-${env.POD_NAME}</name>
+        <persistence-enabled>{{ .Values.artemis.persistence.enabled }}</persistence-enabled>
+
+        <!-- Journal, paging, bindings, and large-messages directories
+             are typically configured by the Artemis Docker image startup scripts
+             relative to the ARTEMIS_INSTANCE directory (e.g., /var/lib/artemis-instance/data).
+             Explicitly setting them here might override image defaults if paths differ.
+             It's often safer to rely on the image's internal setup for these if using official images.
+        <journal-directory>/var/lib/artemis-instance/data/journal</journal-directory>
+        <bindings-directory>/var/lib/artemis-instance/data/bindings</bindings-directory>
+        <large-messages-directory>/var/lib/artemis-instance/data/large-messages</large-messages-directory>
+        <paging-directory>/var/lib/artemis-instance/data/paging</paging-directory>
+        -->
+
+        <security-enabled>true</security-enabled>
+        <security-settings>
+          <security-setting match="#">
+            <permission type="createNonDurableQueue" roles="amq"/>
+            <permission type="deleteNonDurableQueue" roles="amq"/>
+            <permission type="createDurableQueue" roles="amq"/>
+            <permission type="deleteDurableQueue" roles="amq"/>
+            <permission type="send" roles="amq"/>
+            <permission type="consume" roles="amq"/>
+            <permission type="browse" roles="amq"/>
+            <permission type="manage" roles="amq"/> <!-- Role for console access -->
+          </security-setting>
+        </security-settings>
+
+        <acceptors>
+          <!-- Main acceptor for clients and inter-broker communication -->
+          <acceptor name="artemis">tcp://0.0.0.0:61616?protocols=CORE,AMQP,STOMP,HORNETQ,MQTT,OPENWIRE;tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576</acceptor>
+          <!-- Dedicated AMQP acceptor -->
+          <acceptor name="amqp">tcp://0.0.0.0:5672?protocols=AMQP;tcpSendBufferSize=1048576;tcpReceiveBufferSize=1048576</acceptor>
+          <!-- Web console and Jolokia -->
+          <acceptor name="http_jolokia">tcp://0.0.0.0:8161?protocols=HTTP,JOLOKIA</acceptor>
+        </acceptors>
+
+        {{- if .Values.artemis.cluster.enabled }}
+        <!-- User and password for inter-broker cluster communication -->
+        <cluster-user>${env.ARTEMIS_CLUSTER_USER}</cluster-user>
+        <cluster-password>${env.ARTEMIS_CLUSTER_PASSWORD}</cluster-password>
+
+        <cluster-connections>
+          <cluster-connection name="{{ .Values.artemis.cluster.name }}">
+            <!-- connector-ref points to the connector this broker will use for outgoing cluster comms -->
+            <connector-ref>artemis</connector-ref>
+            <message-load-balancing>ON_DEMAND</message-load-balancing>
+            <max-hops>1</max-hops> <!-- For a full mesh cluster -->
+            <static-connectors>
+              {{- $fullName := include "activemq.fullname" . }}
+              {{- $replicas := .Values.artemis.cluster.replicaCount | int }}
+              {{- range $i, $e := until $replicas }}
+                {{- $targetPodName := printf "%s-artemis-%d" $fullName $i }}
+                <!-- Artemis will ignore connecting to itself if listed -->
+              <connector-ref>{{ printf "connector-to-%s" $targetPodName }}</connector-ref>
+              {{- end }}
+            </static-connectors>
+          </cluster-connection>
+        </cluster-connections>
+
+        <connectors>
+          <!-- This connector is used by THIS broker to connect to other brokers in the cluster. -->
+          <!-- It uses the pod's FQDN, which is resolvable due to the headless service. -->
+          <connector name="artemis">tcp://${env.POD_NAME}.{{ template "activemq.fullname" . }}-artemis-headless.{{ .Release.Namespace }}.svc.cluster.local:61616</connector>
+
+          <!-- Define connectors to all peers (including self) for the static-connectors list. -->
+          <!-- Artemis is typically smart enough to not create a connection to itself. -->
+          {{- $fullName := include "activemq.fullname" . }}
+          {{- $namespace := .Release.Namespace }}
+          {{- $headlessService := printf "%s-artemis-headless" $fullName }}
+          {{- $replicas := .Values.artemis.cluster.replicaCount | int }}
+          {{- range $i, $e := until $replicas }}
+            {{- $targetPodName := printf "%s-artemis-%d" $fullName $i }}
+            {{- $targetPodDns := printf "%s.%s.%s.svc.cluster.local" $targetPodName $headlessService $namespace }}
+          <connector name="{{ printf "connector-to-%s" $targetPodName }}">tcp://{{ $targetPodDns }}:61616</connector>
+          {{- end }}
+        </connectors>
+        {{- end }} <!-- end if .Values.artemis.cluster.enabled -->
+
+        <address-settings>
+          <!-- Default catch-all address settings -->
+          <address-setting match="#">
+            <dead-letter-address>DLQ</dead-letter-address>
+            <expiry-address>ExpiryQueue</expiry-address>
+            <redelivery-delay>0</redelivery-delay>
+            <max-size-bytes>-1</max-size-bytes> <!-- No limit -->
+            <message-counter-history-day-limit>10</message-counter-history-day-limit>
+            <address-full-policy>PAGE</address-full-policy> <!-- Page messages to disk when address is full -->
+          </address-setting>
+        </address-settings>
+
+        <addresses>
+          <address name="DLQ">
+            <anycast>
+              <queue name="DLQ" />
+            </anycast>
+          </address>
+          <address name="ExpiryQueue">
+            <anycast>
+              <queue name="ExpiryQueue" />
+            </anycast>
+          </address>
+        </addresses>
+
+      </core>
+    </configuration>
+{{- end }}
