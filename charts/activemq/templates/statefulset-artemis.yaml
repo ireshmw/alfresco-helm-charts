@@ -24,14 +24,16 @@ spec:
       annotations:
         checksum/configmap-artemis-broker: {{ print (include (print $.Template.BasePath "/configmap-artemis-broker.yaml") .) | sha256sum }}
     spec:
-      {{- include "alfresco-common.component-pod-security-context" .Values | nindent 6 }}
+      securityContext:
+        {{- include "alfresco-common.component-pod-security-context" .Values | nindent 8 }}
       {{- include "alfresco-common.imagePullSecrets" . | nindent 6 }}
       terminationGracePeriodSeconds: 30
       containers:
       - name: {{ .Chart.Name }}-artemis
         image: "{{ .Values.artemis.image.repository }}:{{ .Values.artemis.image.tag }}"
         imagePullPolicy: {{ .Values.artemis.image.pullPolicy }}
-        {{- include "alfresco-common.component-security-context" .Values | nindent 8 }}
+        securityContext:
+          {{- include "alfresco-common.component-security-context" .Values | nindent 10 }}
         env:
         {{- $artemisSecretName := default (printf "%s-artemis-secret" (include "activemq.fullname" .)) .Values.artemis.adminUser.existingSecretName }}
         {{- if .Values.artemis.adminUser.existingSecretName }}
