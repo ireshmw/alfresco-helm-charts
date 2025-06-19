@@ -24,14 +24,14 @@ spec:
       annotations:
         checksum/configmap-artemis-broker: {{ print (include (print $.Template.BasePath "/configmap-artemis-broker.yaml") .) | sha256sum }}
     spec:
-      {{- include "alfresco-common.component-pod-security-context" .Values | indent 6 }}
-      {{- include "alfresco-common.imagePullSecrets" . | indent 6 }}
+      {{- include "alfresco-common.component-pod-security-context" .Values | nindent 6 }}
+      {{- include "alfresco-common.imagePullSecrets" . | nindent 6 }}
       terminationGracePeriodSeconds: 30
       containers:
       - name: {{ .Chart.Name }}-artemis
         image: "{{ .Values.artemis.image.repository }}:{{ .Values.artemis.image.tag }}"
         imagePullPolicy: {{ .Values.artemis.image.pullPolicy }}
-        {{- include "alfresco-common.component-security-context" .Values | indent 8 }}
+        {{- include "alfresco-common.component-security-context" .Values | nindent 8 }}
         env:
         {{- $artemisSecretName := default (printf "%s-artemis-secret" (include "activemq.fullname" .)) .Values.artemis.adminUser.existingSecretName }}
         {{- if .Values.artemis.adminUser.existingSecretName }}
@@ -94,13 +94,13 @@ spec:
               # Construct the broker name using POD_NAME env var
               BROKER_NAME_SUFFIX="${POD_NAME}"
               EXPECTED_BROKER_NAME="{{ .Values.artemis.cluster.name }}-${BROKER_NAME_SUFFIX}"
-              
+
               # Check if ARTEMIS_USER and ARTEMIS_PASSWORD are set, if not, try without auth (less secure, for flexibility)
               AUTH_PARAMS=""
               if [ -n "${ARTEMIS_USER}" ] && [ -n "${ARTEMIS_PASSWORD}" ]; then
                 AUTH_PARAMS="-u ${ARTEMIS_USER}:${ARTEMIS_PASSWORD}"
               fi
-              
+
               # Query Jolokia for the 'Started' attribute of the specific broker MBean
               # The URL needs to be properly encoded if special characters are in BROKER_NAME, but typically not for hostnames/simple names
               # Using JQ to parse JSON if available, otherwise grep
@@ -118,21 +118,21 @@ spec:
           {{- toYaml .Values.artemis.resources | nindent 12 }}
         volumeMounts:
         - name: data
-          mountPath: {{ .Values.artemis.persistence.data.mountPath }} 
-        - name: broker-config 
-          mountPath: /var/lib/artemis-instance/etc/broker.xml 
-          subPath: broker.xml 
+          mountPath: {{ .Values.artemis.persistence.data.mountPath }}
+        - name: broker-config
+          mountPath: /var/lib/artemis-instance/etc/broker.xml
+          subPath: broker.xml
       volumes:
       - name: broker-config
         configMap:
-          name: {{ template "activemq.fullname" . }}-artemis-broker-config 
+          name: {{ template "activemq.fullname" . }}-artemis-broker-config
           items:
           - key: broker.xml
             path: broker.xml
   {{- if .Values.artemis.persistence.enabled }}
   volumeClaimTemplates:
   - metadata:
-      name: data 
+      name: data
     spec:
       accessModes: [ "ReadWriteOnce" ]
       resources:
